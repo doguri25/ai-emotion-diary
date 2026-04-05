@@ -129,26 +129,24 @@ document.addEventListener('DOMContentLoaded', async () => {
         const { data, error } = await supabase
             .from('messages')
             .select('*')
-            .order('created_at', { ascending: true })
-            .limit(50);
+            .order('created_at', { ascending: false }) // 최신 글부터 가져오기
+            .limit(30);
 
         if (!error && data) {
             chatMessages.innerHTML = '';
-            data.forEach(msg => appendMessage(msg));
+            // 역순으로 정렬해서 화면에 추가 (시간 순서대로 보여주기 위해)
+            data.reverse().forEach(msg => appendMessage(msg));
         }
 
         if (!chatChannel) {
             chatChannel = supabase
                 .channel('public:messages')
                 .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, payload => {
-                    // 서버로부터 온 메시지가 "내 메시지"인지 체크하여 중복 방지 (낙관적 업데이트 사용 시)
-                    if (currentUser && payload.new.user_id === currentUser.id) {
-                        // 이미 로컬에서 추가되었을 수 있으므로 무시하거나 매칭 처리 필요
-                        // 실시간성 보장을 위해 여기서는 중복 체크 후 추가
-                        const existingMsg = document.querySelector(`[data-id="${payload.new.id}"]`);
-                        if (!existingMsg) appendMessage(payload.new);
-                    } else {
-                        appendMessage(payload.new);
+                    const newMsg = payload.new;
+                    // 내가 보낸 메시지인 경우 이미 화면에 표시되었을 수 있으므로 체크
+                    const existingMsg = document.querySelector(`[data-id="${newMsg.id}"]`);
+                    if (!existingMsg) {
+                        appendMessage(newMsg);
                     }
                 })
                 .subscribe();
