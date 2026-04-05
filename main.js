@@ -48,14 +48,12 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // --- Authentication Logic ---
 
-    // Check Current Session
     const { data: { session } } = await supabase.auth.getSession();
     if (session) {
         currentUser = session.user;
         showApp(session.user);
     }
 
-    // Auth Form Submit (Login)
     authForm.addEventListener('submit', async (e) => {
         e.preventDefault();
         const email = emailInput.value;
@@ -70,7 +68,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     });
 
-    // Sign Up
     signUpBtn.addEventListener('click', async () => {
         const email = emailInput.value;
         const password = passwordInput.value;
@@ -92,7 +89,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     });
 
-    // Google Login
     googleLoginBtn.addEventListener('click', async () => {
         const { error } = await supabase.auth.signInWithOAuth({
             provider: 'google',
@@ -101,7 +97,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (error) alert(`Google 로그인 실패: ${error.message}`);
     });
 
-    // Logout
     logoutBtn.addEventListener('click', async () => {
         await supabase.auth.signOut();
         location.reload(); 
@@ -112,21 +107,20 @@ document.addEventListener('DOMContentLoaded', async () => {
         appContainer.style.display = 'flex';
         userEmailDisplay.innerText = user.email;
         fetchHistory(); 
-        initializeChat(); // Pre-load chat data
+        initializeChat(); 
     }
 
     // --- Chat Modal & Logic ---
 
     openChatBtn.addEventListener('click', () => {
         chatModal.style.display = 'flex';
-        chatMessages.scrollTop = chatMessages.scrollHeight; // Scroll to bottom when opening
+        chatMessages.scrollTop = chatMessages.scrollHeight;
     });
 
     closeChatBtn.addEventListener('click', () => {
         chatModal.style.display = 'none';
     });
 
-    // Close on overlay click
     chatModal.addEventListener('click', (e) => {
         if (e.target === chatModal) chatModal.style.display = 'none';
     });
@@ -147,7 +141,15 @@ document.addEventListener('DOMContentLoaded', async () => {
             chatChannel = supabase
                 .channel('public:messages')
                 .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, payload => {
-                    appendMessage(payload.new);
+                    // 서버로부터 온 메시지가 "내 메시지"인지 체크하여 중복 방지 (낙관적 업데이트 사용 시)
+                    if (currentUser && payload.new.user_id === currentUser.id) {
+                        // 이미 로컬에서 추가되었을 수 있으므로 무시하거나 매칭 처리 필요
+                        // 실시간성 보장을 위해 여기서는 중복 체크 후 추가
+                        const existingMsg = document.querySelector(`[data-id="${payload.new.id}"]`);
+                        if (!existingMsg) appendMessage(payload.new);
+                    } else {
+                        appendMessage(payload.new);
+                    }
                 })
                 .subscribe();
         }
@@ -158,10 +160,15 @@ document.addEventListener('DOMContentLoaded', async () => {
             chatMessages.innerHTML = '';
         }
 
-        const isOwner = currentUser && msg.user_id === currentUser.id;
+        // 중복 방지용 체크
+        if (msg.id && document.querySelector(`[data-id="${msg.id}"]`)) return;
+
+        const isOwner = currentUser && String(msg.user_id) === String(currentUser.id);
         const msgDiv = document.createElement('div');
         msgDiv.classList.add('chat-message');
         msgDiv.classList.add(isOwner ? 'chat-bubble-owner' : 'chat-bubble-other');
+        
+        if (msg.id) msgDiv.setAttribute('data-id', msg.id);
 
         const sender = document.createElement('span');
         sender.classList.add('chat-sender');
@@ -184,17 +191,37 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         chatInput.value = '';
 
-        const { error } = await supabase
+        // 낙관적 업데이트 (Optimistic Update): 서버 응답 전에 화면에 먼저 표시
+        const tempId = 'temp-' + Date.now();
+        const optimisticMsg = {
+            id: tempId,
+            user_id: currentUser.id,
+            user_email: currentUser.email,
+            content: contentText,
+            created_at: new Date().toISOString()
+        };
+        appendMessage(optimisticMsg);
+
+        // 실제 서버 저장
+        const { data, error } = await supabase
             .from('messages')
             .insert([{
                 user_id: currentUser.id,
                 user_email: currentUser.email,
                 content: contentText 
-            }]);
+            }])
+            .select();
 
         if (error) {
             console.error('Chat error:', error);
+            // 실패 시 로컬에 추가했던 임시 메시지 제거
+            const tempMsg = document.querySelector(`[data-id="${tempId}"]`);
+            if (tempMsg) tempMsg.remove();
             alert('메시지 전송 실패: ' + error.message);
+        } else if (data && data[0]) {
+            // 성공 시 임시 ID를 실제 서버 ID로 교체 (중복 방지용)
+            const tempMsg = document.querySelector(`[data-id="${tempId}"]`);
+            if (tempMsg) tempMsg.setAttribute('data-id', data[0].id);
         }
     });
 
