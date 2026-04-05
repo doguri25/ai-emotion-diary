@@ -418,17 +418,26 @@ h2 {
     background: #f7fafc;
 }
 
-/* User Email & Logout */
+/* User Email & Logout Section */
 .header-top {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: -20px;
+    margin-bottom: 20px; /* Removed negative margin to prevent overlap */
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.header-buttons {
+    display: flex;
+    gap: 8px;
+    align-items: center;
 }
 
 .user-email {
     font-size: 0.8rem;
     color: var(--text-soft);
+    word-break: break-all;
 }
 
 .logout-btn {
@@ -437,6 +446,13 @@ h2 {
     background: #f8f9fa;
     color: #d63031;
     border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+.app-icon-container {
+    text-align: center;
+    margin-top: 10px;
 }
 
 /* Chat Section Styles */
