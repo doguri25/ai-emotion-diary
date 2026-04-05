@@ -3,6 +3,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const voiceBtn = document.getElementById('voiceBtn');
     const analyzeBtn = document.getElementById('analyzeBtn');
     const aiBox = document.getElementById('aiBox');
+    const historyContainer = document.getElementById('historyContainer');
     const INITIAL_AI_TEXT = '여기에 AI의 답변이 표시됩니다.';
 
     // Load saved data from localStorage
@@ -16,6 +17,9 @@ document.addEventListener('DOMContentLoaded', () => {
         aiBox.style.borderColor = '#6c5ce7';
         aiBox.style.color = '#2d3436';
     }
+
+    // Initial Load
+    fetchHistory();
 
     // Clear AI box when user starts typing
     diaryInput.addEventListener('input', () => {
@@ -31,6 +35,52 @@ document.addEventListener('DOMContentLoaded', () => {
         aiBox.style.color = 'var(--text-soft)';
         localStorage.removeItem('savedDiaryText');
         localStorage.removeItem('savedAiResponse');
+    }
+
+    // Fetch and render history from Redis
+    async function fetchHistory() {
+        historyContainer.innerHTML = '<div class="history-loading">불러오는 중...</div>';
+        try {
+            const response = await fetch('/api/history');
+            const data = await response.json();
+
+            if (data.history && data.history.length > 0) {
+                renderHistory(data.history);
+            } else {
+                historyContainer.innerHTML = '<div class="history-empty">아직 기록된 일기가 없어요. 오늘의 일기를 작성해 보세요!</div>';
+            }
+        } catch (error) {
+            console.error('Failed to load history:', error);
+            historyContainer.innerHTML = '<div class="history-empty">히스토리를 불러오는 중 오류가 발생했습니다.</div>';
+        }
+    }
+
+    function renderHistory(history) {
+        historyContainer.innerHTML = '';
+        history.forEach(item => {
+            const date = new Date(item.createdAt).toLocaleString('ko-KR', {
+                month: 'long', 
+                day: 'numeric', 
+                hour: '2-digit', 
+                minute: '2-digit'
+            });
+
+            const card = document.createElement('div');
+            card.classList.add('history-card');
+            
+            // Format AI response text for display (replace newlines with <br>)
+            const formattedAiResponse = item.aiResponse.replace(/\n/g, '<br>');
+
+            card.innerHTML = `
+                <span class="history-date">${date}</span>
+                <div class="history-diary-text">${item.diaryText}</div>
+                <div class="history-ai-response">
+                    ✨ <strong>심리 상담 분석</strong><br><br>
+                    ${formattedAiResponse}
+                </div>
+            `;
+            historyContainer.appendChild(card);
+        });
     }
 
     // Analyze button functionality CALLING BACKEND API
@@ -74,6 +124,9 @@ document.addEventListener('DOMContentLoaded', () => {
             // Save to localStorage
             localStorage.setItem('savedDiaryText', diaryText);
             localStorage.setItem('savedAiResponse', aiBox.innerHTML);
+
+            // Fetch history again to show the latest entry
+            fetchHistory();
         } catch (error) {
             console.error('API Error:', error);
             aiBox.innerHTML = `❌ <strong>AI 분석 오류:</strong><br><br>${error.message || '서버와의 통신 중 오류가 발생했습니다.'}`;

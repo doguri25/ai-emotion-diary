@@ -1,4 +1,8 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import Redis from "ioredis";
+
+// Vercel Serverless Redis 연결 설정 (REDIS_URL 환경 변수 필요)
+const redis = process.env.REDIS_URL ? new Redis(process.env.REDIS_URL) : null;
 
 export default async function handler(req, res) {
   // POST 메서드만 허용합니다.
@@ -13,8 +17,7 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: '일기 내용이 필요합니다.' });
     }
 
-    // Vercel 프로젝트 환경 변수에서 API 키를 가져옵니다.
-    // 기존의 VITE_GEMINI_API_KEY 이름 또는 GEMINI_API_KEY를 사용할 수 있습니다.
+    // 서버 사이드에서만 안전하게 관리되는 API 키를 사용합니다.
     const apiKey = process.env.GEMINI_API_KEY;
     
     if (!apiKey) {
@@ -30,10 +33,37 @@ export default async function handler(req, res) {
 
     // 분석 요청 및 응답 대기
     const result = await model.generateContent(prompt);
-    const text = await result.response.text();
+    const aiResponse = await result.response.text();
 
-    // 성공적으로 결과를 반환합니다.
-    return res.status(200).json({ result: text.trim() });
+    // Redis에 데이터 저장 시도
+    let savedId = null;
+    if (redis) {
+      try {
+        const id = Date.now().toString(); // 시간 기반 고유 ID 생성
+        const diaryData = {
+          id,
+          diaryText,
+          aiResponse: aiResponse.trim(),
+          createdAt: new Date().toISOString()
+        };
+        
+        // JSON 문자열로 저장 (키 형식: diary:ID)
+        await redis.set(`diary:${id}`, JSON.stringify(diaryData));
+        savedId = id;
+        console.log(`Successfully saved diary to Redis with ID: ${id}`);
+      } catch (redisError) {
+        // Redis 저장 실패 시 로깅만 하고 메인 로직은 진행합니다.
+        console.error("Redis Storage Error:", redisError);
+      }
+    } else {
+      console.warn("REDIS_URL is not provided. Skipping Redis storage.");
+    }
+
+    // 성공적으로 결과를 반환합니다. (추가로 저장된 ID 정보도 포함)
+    return res.status(200).json({ 
+      result: aiResponse.trim(),
+      savedId: savedId 
+    });
   } catch (error) {
     console.error("Serverless API Error:", error);
     return res.status(500).json({ error: '서버 내부 오류가 발생했습니다. 잠시 후 다시 시도해주세요.' });
