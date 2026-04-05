@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 감정 일기 - 오늘의 하루는 어땠나요?</title>
+    <meta name="description" content="AI가 당신의 감정을 분석하고 따뜻한 위로를 전해주는 감정 일기 애플리케이션입니다.">
+    <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=Noto+Sans+KR:wght@400;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="app-icon-container">
+                <img src="icon.png" alt="AI 감정 일기 아이콘" class="app-icon">
+            </div>
+            <h1>오늘의 하루는 어땠나요?</h1>
+        </header>
+
+        <main>
+            <section class="input-section">
+                <textarea id="diaryInput" class="diary-input" placeholder="오늘 있었던 일과 느꼈던 솔직한 감정을 적어주세요..."></textarea>
+            </section>
+
+            <section class="button-group">
+                <button id="voiceBtn" class="voice-btn">
+                    <span>🎙️</span> 음성으로 입력하기
+                </button>
+                <button id="analyzeBtn" class="analyze-btn">
+                    <span>💡</span> 분석 요청하기
+                </button>
+            </section>
+
+            <section id="aiResponseSection" class="ai-response-section">
+                <h2>AI 답변</h2>
+                <div id="aiBox" class="ai-box">
+                    여기에 AI의 답변이 표시됩니다.
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script type="module" src="/main.js"></script>
+    <!-- .env 파일을 생성하고 GEMINI_API_KEY를 설정했는지 확인해 주세요! (서버리스 환경 전용) -->
+</body>
+</html>
