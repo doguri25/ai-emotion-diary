@@ -182,7 +182,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (e.target === chatModal) chatModal.style.display = 'none';
     });
 
-    // Handle Chat Image Attachment
     attachBtn.addEventListener('click', () => chatImageInput.click());
 
     chatImageInput.addEventListener('change', async (e) => {
@@ -207,7 +206,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                 .from('chat-images')
                 .getPublicUrl(filePath);
 
-            // Send as special image format
             const imageMarkdown = `![image](${publicUrl})`;
             await sendMessage(imageMarkdown);
 
@@ -217,7 +215,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         } finally {
             attachBtn.disabled = false;
             attachBtn.innerText = '📎';
-            chatImageInput.value = ''; // Reset input
+            chatImageInput.value = ''; 
         }
     });
 
@@ -276,7 +274,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         const contentArea = document.createElement('div');
         contentArea.classList.add('chat-msg-content');
 
-        // Check for image format
         const imgMatch = msg.content && msg.content.match(/^!\[image\]\((.*)\)$/);
         if (imgMatch) {
             const imgUrl = imgMatch[1];
@@ -314,23 +311,47 @@ document.addEventListener('DOMContentLoaded', async () => {
         };
         appendMessage(optimisticMsg);
 
-        const { data, error } = await supabase
-            .from('messages')
-            .insert([{
-                user_id: currentUser.id,
-                user_email: currentUser.email,
-                user_avatar: currentAvatar,
-                content: content 
-            }])
-            .select();
+        // Try inserting with 'user_avatar'. If it fails because column doesn't exist, try without it.
+        try {
+            const { data, error } = await supabase
+                .from('messages')
+                .insert([{
+                    user_id: currentUser.id,
+                    user_email: currentUser.email,
+                    user_avatar: currentAvatar,
+                    content: content 
+                }])
+                .select();
 
-        if (error) {
+            if (error) {
+                // Check if error is 'column not found'
+                if (error.message.includes('user_avatar') || error.code === 'PGRST204') {
+                    console.warn("'user_avatar' column missing in Supabase. Retrying without it...");
+                    const { data: retryData, error: retryError } = await supabase
+                        .from('messages')
+                        .insert([{
+                            user_id: currentUser.id,
+                            user_email: currentUser.email,
+                            content: content 
+                        }])
+                        .select();
+                    
+                    if (retryError) throw retryError;
+                    if (retryData && retryData[0]) {
+                        const tempMsg = document.querySelector(`[data-id="${tempId}"]`);
+                        if (tempMsg) tempMsg.setAttribute('data-id', retryData[0].id);
+                    }
+                } else {
+                    throw error;
+                }
+            } else if (data && data[0]) {
+                const tempMsg = document.querySelector(`[data-id="${tempId}"]`);
+                if (tempMsg) tempMsg.setAttribute('data-id', data[0].id);
+            }
+        } catch (err) {
             const tempMsg = document.querySelector(`[data-id="${tempId}"]`);
             if (tempMsg) tempMsg.remove();
-            throw error;
-        } else if (data && data[0]) {
-            const tempMsg = document.querySelector(`[data-id="${tempId}"]`);
-            if (tempMsg) tempMsg.setAttribute('data-id', data[0].id);
+            throw err;
         }
     }
 
