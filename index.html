@@ -102,12 +102,24 @@
                 <h2>실시간 채팅</h2>
                 <button id="closeChatBtn" class="close-modal-btn">&times;</button>
             </div>
+            
+            <div class="profile-section">
+                <div class="avatar-container" id="avatarTrigger">
+                    <img id="userAvatar" src="https://ui-avatars.com/api/?name=User&background=6c5ce7&color=fff" alt="프로필 사진">
+                    <div class="avatar-overlay"><span>편집</span></div>
+                </div>
+                <button type="button" id="changePhotoTextBtn" class="change-photo-btn">사진 변경</button>
+                <input type="file" id="avatarInput" accept="image/*" style="display: none;">
+            </div>
+
             <div id="chatMessages" class="chat-messages">
                 <div class="chat-empty">환영합니다! 메시지를 남겨보세요.</div>
             </div>
             <form id="chatForm" class="chat-form">
                 <input type="text" id="chatInput" placeholder="다른 사람들과 대화해보세요..." required>
+                <button type="button" id="attachBtn" class="attach-btn">📎</button>
                 <button type="submit" id="sendChatBtn">전송</button>
+                <input type="file" id="chatImageInput" accept="image/*" style="display: none;">
             </form>
         </div>
     </div>

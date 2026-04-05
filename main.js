@@ -25,13 +25,21 @@ document.addEventListener('DOMContentLoaded', async () => {
     const historyContainer = document.getElementById('historyContainer');
     const INITIAL_AI_TEXT = '여기에 AI의 답변이 표시됩니다.';
 
-    // DOM Elements - Chat Modal
+    // DOM Elements - Chat Modal & Profile
     const chatModal = document.getElementById('chatModal');
     const openChatBtn = document.getElementById('openChatBtn');
     const closeChatBtn = document.getElementById('closeChatBtn');
     const chatMessages = document.getElementById('chatMessages');
     const chatForm = document.getElementById('chatForm');
     const chatInput = document.getElementById('chatInput');
+    const userAvatar = document.getElementById('userAvatar');
+    const avatarInput = document.getElementById('avatarInput');
+    const avatarTrigger = document.getElementById('avatarTrigger');
+    const changePhotoTextBtn = document.getElementById('changePhotoTextBtn');
+
+    // DOM Elements - Chat Attachments
+    const attachBtn = document.getElementById('attachBtn');
+    const chatImageInput = document.getElementById('chatImageInput');
 
     let currentUser = null;
     let chatChannel = null;
@@ -108,7 +116,56 @@ document.addEventListener('DOMContentLoaded', async () => {
         userEmailDisplay.innerText = user.email;
         fetchHistory(); 
         initializeChat(); 
+        loadAvatar(user); 
     }
+
+    // --- Profile & Avatar Logic ---
+
+    function loadAvatar(user) {
+        const avatarUrl = user.user_metadata?.avatar_url || 
+                         `https://ui-avatars.com/api/?name=${user.email[0]}&background=6c5ce7&color=fff`;
+        userAvatar.src = avatarUrl;
+    }
+
+    avatarTrigger.addEventListener('click', () => avatarInput.click());
+    changePhotoTextBtn.addEventListener('click', () => avatarInput.click());
+
+    avatarInput.addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if (!file || !currentUser) return;
+
+        try {
+            const fileExt = file.name.split('.').pop();
+            const fileName = `${currentUser.id}/${Date.now()}.${fileExt}`;
+            const filePath = `${fileName}`;
+
+            const { error: uploadError } = await supabase.storage
+                .from('avatars')
+                .upload(filePath, file, { upsert: true });
+
+            if (uploadError) throw uploadError;
+
+            const { data: { publicUrl } } = supabase.storage
+                .from('avatars')
+                .getPublicUrl(filePath);
+
+            const { error: updateError } = await supabase.auth.updateUser({
+                data: { avatar_url: publicUrl }
+            });
+
+            if (updateError) throw updateError;
+
+            const { data: { user } } = await supabase.auth.getUser();
+            currentUser = user;
+            loadAvatar(user);
+            
+            alert('프로필 사진이 업데이트되었습니다!');
+
+        } catch (error) {
+            console.error('Avatar update error:', error);
+            alert('사진 업데이트 중 오류가 발생했습니다: ' + error.message);
+        }
+    });
 
     // --- Chat Modal & Logic ---
 
@@ -125,16 +182,54 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (e.target === chatModal) chatModal.style.display = 'none';
     });
 
+    // Handle Chat Image Attachment
+    attachBtn.addEventListener('click', () => chatImageInput.click());
+
+    chatImageInput.addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if (!file || !currentUser) return;
+
+        try {
+            attachBtn.disabled = true;
+            attachBtn.innerText = '⏳';
+
+            const fileExt = file.name.split('.').pop();
+            const fileName = `${currentUser.id}/${Date.now()}.${fileExt}`;
+            const filePath = `${fileName}`;
+
+            const { error: uploadError } = await supabase.storage
+                .from('chat-images')
+                .upload(filePath, file);
+
+            if (uploadError) throw uploadError;
+
+            const { data: { publicUrl } } = supabase.storage
+                .from('chat-images')
+                .getPublicUrl(filePath);
+
+            // Send as special image format
+            const imageMarkdown = `![image](${publicUrl})`;
+            await sendMessage(imageMarkdown);
+
+        } catch (error) {
+            console.error('Chat image upload error:', error);
+            alert('이미지 업로드 실패: ' + error.message);
+        } finally {
+            attachBtn.disabled = false;
+            attachBtn.innerText = '📎';
+            chatImageInput.value = ''; // Reset input
+        }
+    });
+
     async function initializeChat() {
         const { data, error } = await supabase
             .from('messages')
             .select('*')
-            .order('created_at', { ascending: false }) // 최신 글부터 가져오기
+            .order('created_at', { ascending: false })
             .limit(30);
 
         if (!error && data) {
             chatMessages.innerHTML = '';
-            // 역순으로 정렬해서 화면에 추가 (시간 순서대로 보여주기 위해)
             data.reverse().forEach(msg => appendMessage(msg));
         }
 
@@ -143,11 +238,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                 .channel('public:messages')
                 .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, payload => {
                     const newMsg = payload.new;
-                    // 내가 보낸 메시지인 경우 이미 화면에 표시되었을 수 있으므로 체크
                     const existingMsg = document.querySelector(`[data-id="${newMsg.id}"]`);
-                    if (!existingMsg) {
-                        appendMessage(newMsg);
-                    }
+                    if (!existingMsg) appendMessage(newMsg);
                 })
                 .subscribe();
         }
@@ -158,7 +250,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             chatMessages.innerHTML = '';
         }
 
-        // 중복 방지용 체크
         if (msg.id && document.querySelector(`[data-id="${msg.id}"]`)) return;
 
         const isOwner = currentUser && String(msg.user_id) === String(currentUser.id);
@@ -168,58 +259,90 @@ document.addEventListener('DOMContentLoaded', async () => {
         
         if (msg.id) msgDiv.setAttribute('data-id', msg.id);
 
+        const msgHeader = document.createElement('div');
+        msgHeader.classList.add('chat-msg-header');
+
+        const avatarImg = document.createElement('img');
+        avatarImg.classList.add('chat-avatar');
+        avatarImg.src = msg.user_avatar || `https://ui-avatars.com/api/?name=${msg.user_email[0]}&background=6c5ce7&color=fff`;
+        
         const sender = document.createElement('span');
         sender.classList.add('chat-sender');
         sender.innerText = msg.user_email || '익명';
 
-        const text = document.createElement('div');
-        text.innerText = msg.content; 
+        msgHeader.appendChild(avatarImg);
+        msgHeader.appendChild(sender);
 
-        msgDiv.appendChild(sender);
-        msgDiv.appendChild(text);
+        const contentArea = document.createElement('div');
+        contentArea.classList.add('chat-msg-content');
+
+        // Check for image format
+        const imgMatch = msg.content && msg.content.match(/^!\[image\]\((.*)\)$/);
+        if (imgMatch) {
+            const imgUrl = imgMatch[1];
+            const chatImg = document.createElement('img');
+            chatImg.src = imgUrl;
+            chatImg.classList.add('chat-sent-image');
+            chatImg.onerror = () => {
+                chatImg.src = 'https://via.placeholder.com/200x150?text=이미지를 불러올 수 없습니다';
+                chatImg.classList.add('image-error');
+            };
+            contentArea.appendChild(chatImg);
+        } else {
+            contentArea.innerText = msg.content; 
+        }
+
+        msgDiv.appendChild(msgHeader);
+        msgDiv.appendChild(contentArea);
         chatMessages.appendChild(msgDiv);
 
         chatMessages.scrollTop = chatMessages.scrollHeight;
     }
 
-    chatForm.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const contentText = chatInput.value.trim();
-        if (!contentText || !currentUser) return;
+    async function sendMessage(content) {
+        if (!content || !currentUser) return;
 
-        chatInput.value = '';
-
-        // 낙관적 업데이트 (Optimistic Update): 서버 응답 전에 화면에 먼저 표시
+        const currentAvatar = currentUser.user_metadata?.avatar_url || "";
         const tempId = 'temp-' + Date.now();
         const optimisticMsg = {
             id: tempId,
             user_id: currentUser.id,
             user_email: currentUser.email,
-            content: contentText,
+            user_avatar: currentAvatar,
+            content: content,
             created_at: new Date().toISOString()
         };
         appendMessage(optimisticMsg);
 
-        // 실제 서버 저장
         const { data, error } = await supabase
             .from('messages')
             .insert([{
                 user_id: currentUser.id,
                 user_email: currentUser.email,
-                content: contentText 
+                user_avatar: currentAvatar,
+                content: content 
             }])
             .select();
 
         if (error) {
-            console.error('Chat error:', error);
-            // 실패 시 로컬에 추가했던 임시 메시지 제거
             const tempMsg = document.querySelector(`[data-id="${tempId}"]`);
             if (tempMsg) tempMsg.remove();
-            alert('메시지 전송 실패: ' + error.message);
+            throw error;
         } else if (data && data[0]) {
-            // 성공 시 임시 ID를 실제 서버 ID로 교체 (중복 방지용)
             const tempMsg = document.querySelector(`[data-id="${tempId}"]`);
             if (tempMsg) tempMsg.setAttribute('data-id', data[0].id);
+        }
+    }
+
+    chatForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const contentText = chatInput.value.trim();
+        if (!contentText) return;
+        chatInput.value = '';
+        try {
+            await sendMessage(contentText);
+        } catch (error) {
+            alert('메시지 전송 실패: ' + error.message);
         }
     });
 
