@@ -1,4 +1,23 @@
-document.addEventListener('DOMContentLoaded', () => {
+import { createClient } from "@supabase/supabase-js";
+
+// Initialize Supabase Frontend Client
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || import.meta.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+const supabase = createClient(supabaseUrl, supabaseKey);
+
+document.addEventListener('DOMContentLoaded', async () => {
+    // DOM Elements - Auth
+    const loginContainer = document.getElementById('loginContainer');
+    const appContainer = document.getElementById('appContainer');
+    const authForm = document.getElementById('authForm');
+    const emailInput = document.getElementById('email');
+    const passwordInput = document.getElementById('password');
+    const signUpBtn = document.getElementById('signUpBtn');
+    const googleLoginBtn = document.getElementById('googleLoginBtn');
+    const userEmailDisplay = document.getElementById('userEmail');
+    const logoutBtn = document.getElementById('logoutBtn');
+
+    // DOM Elements - App
     const diaryInput = document.getElementById('diaryInput');
     const voiceBtn = document.getElementById('voiceBtn');
     const analyzeBtn = document.getElementById('analyzeBtn');
@@ -6,42 +25,166 @@ document.addEventListener('DOMContentLoaded', () => {
     const historyContainer = document.getElementById('historyContainer');
     const INITIAL_AI_TEXT = '여기에 AI의 답변이 표시됩니다.';
 
-    // Load saved data from localStorage
-    const savedDiaryText = localStorage.getItem('savedDiaryText');
-    const savedAiResponse = localStorage.getItem('savedAiResponse');
+    // DOM Elements - Chat
+    const chatMessages = document.getElementById('chatMessages');
+    const chatForm = document.getElementById('chatForm');
+    const chatInput = document.getElementById('chatInput');
 
-    if (savedDiaryText && savedAiResponse) {
-        diaryInput.value = savedDiaryText;
-        aiBox.innerHTML = savedAiResponse;
-        aiBox.style.borderStyle = 'solid';
-        aiBox.style.borderColor = '#6c5ce7';
-        aiBox.style.color = '#2d3436';
+    let currentUser = null;
+
+    // Helper to get access token
+    async function getAuthHeaders() {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) return {};
+        return {
+            'Authorization': `Bearer ${session.access_token}`,
+            'Content-Type': 'application/json'
+        };
     }
 
-    // Initial Load
-    fetchHistory();
+    // --- Authentication Logic ---
 
-    // Clear AI box when user starts typing
-    diaryInput.addEventListener('input', () => {
-        if (aiBox.innerText !== INITIAL_AI_TEXT && !analyzeBtn.disabled) {
-            resetAIBox();
+    // Check Current Session
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session) {
+        currentUser = session.user;
+        showApp(session.user);
+    }
+
+    // Auth Form Submit (Login)
+    authForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const email = emailInput.value;
+        const password = passwordInput.value;
+
+        const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+        if (error) {
+            alert(`로그인 실패: ${error.message}`);
+        } else {
+            currentUser = data.user;
+            showApp(data.user);
         }
     });
 
-    function resetAIBox() {
-        aiBox.innerText = INITIAL_AI_TEXT;
-        aiBox.style.borderStyle = 'dashed';
-        aiBox.style.borderColor = '#ced4da';
-        aiBox.style.color = 'var(--text-soft)';
-        localStorage.removeItem('savedDiaryText');
-        localStorage.removeItem('savedAiResponse');
+    // Sign Up
+    signUpBtn.addEventListener('click', async () => {
+        const email = emailInput.value;
+        const password = passwordInput.value;
+
+        if (!email || !password) {
+            alert('이메일과 비밀번호를 입력해주세요!');
+            return;
+        }
+
+        const { data, error } = await supabase.auth.signUp({ email, password });
+        if (error) {
+            alert(`회원가입 실패: ${error.message}`);
+        } else {
+            alert('회원가입 성공! 가입 확인 이메일을 확인해주세요!');
+            if (data.user && data.session) {
+                currentUser = data.user;
+                showApp(data.user);
+            }
+        }
+    });
+
+    // Google Login
+    googleLoginBtn.addEventListener('click', async () => {
+        const { error } = await supabase.auth.signInWithOAuth({
+            provider: 'google',
+            options: { redirectTo: window.location.origin }
+        });
+        if (error) alert(`Google 로그인 실패: ${error.message}`);
+    });
+
+    // Logout
+    logoutBtn.addEventListener('click', async () => {
+        await supabase.auth.signOut();
+        location.reload(); 
+    });
+
+    function showApp(user) {
+        loginContainer.style.display = 'none';
+        appContainer.style.display = 'flex';
+        userEmailDisplay.innerText = user.email;
+        fetchHistory(); 
+        initializeChat(); 
     }
 
-    // Fetch and render history from Redis
+    // --- Real-time Chat Logic ---
+
+    async function initializeChat() {
+        const { data, error } = await supabase
+            .from('messages')
+            .select('*')
+            .order('created_at', { ascending: true })
+            .limit(50);
+
+        if (!error && data) {
+            chatMessages.innerHTML = '';
+            data.forEach(msg => appendMessage(msg));
+        }
+
+        supabase
+            .channel('public:messages')
+            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, payload => {
+                appendMessage(payload.new);
+            })
+            .subscribe();
+    }
+
+    function appendMessage(msg) {
+        if (chatMessages.querySelector('.chat-empty')) {
+            chatMessages.innerHTML = '';
+        }
+
+        const isOwner = currentUser && msg.user_id === currentUser.id;
+        const msgDiv = document.createElement('div');
+        msgDiv.classList.add('chat-message');
+        msgDiv.classList.add(isOwner ? 'chat-bubble-owner' : 'chat-bubble-other');
+
+        const sender = document.createElement('span');
+        sender.classList.add('chat-sender');
+        sender.innerText = msg.user_email || '익명';
+
+        const text = document.createElement('div');
+        text.innerText = msg.content; // Use 'content' as requested
+
+        msgDiv.appendChild(sender);
+        msgDiv.appendChild(text);
+        chatMessages.appendChild(msgDiv);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
+    chatForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const contentText = chatInput.value.trim();
+        if (!contentText || !currentUser) return;
+
+        // Clear input immediately as requested
+        chatInput.value = '';
+
+        const { error } = await supabase
+            .from('messages')
+            .insert([{
+                user_id: currentUser.id,
+                user_email: currentUser.email,
+                content: contentText // Use 'content' field
+            }]);
+
+        if (error) {
+            console.error('Chat error:', error);
+            alert('메시지 전송 실패: ' + error.message);
+        }
+    });
+
+    // --- App Logic (Diary) ---
+
     async function fetchHistory() {
         historyContainer.innerHTML = '<div class="history-loading">불러오는 중...</div>';
         try {
-            const response = await fetch('/api/history');
+            const headers = await getAuthHeaders();
+            const response = await fetch('/api/history', { headers });
             const data = await response.json();
 
             if (data.history && data.history.length > 0) {
@@ -68,7 +211,6 @@ document.addEventListener('DOMContentLoaded', () => {
             const card = document.createElement('div');
             card.classList.add('history-card');
             
-            // Format AI response text for display (replace newlines with <br>)
             const formattedAiResponse = item.aiResponse.replace(/\n/g, '<br>');
 
             card.innerHTML = `
@@ -83,7 +225,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // Analyze button functionality CALLING BACKEND API
     analyzeBtn.addEventListener('click', async () => {
         const diaryText = diaryInput.value.trim();
 
@@ -93,43 +234,31 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        // Show analyzing state
         analyzeBtn.disabled = true;
         analyzeBtn.innerHTML = '<span>⏳</span> AI 분석 중...';
         aiBox.classList.add('analyzing');
         aiBox.innerText = '당신의 마음을 읽고 있어요... 잠시만 기다려 주세요.';
 
         try {
-            // Call Vercel Serverless API
+            const headers = await getAuthHeaders();
             const response = await fetch('/api/analyze', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
+                headers,
                 body: JSON.stringify({ diaryText }),
             });
 
             const data = await response.json();
 
-            if (!response.ok) {
-                throw new Error(data.error || '분석 중 오류가 발생했습니다.');
-            }
+            if (!response.ok) throw new Error(data.error || '분석 중 오류가 발생했습니다.');
 
             const text = data.result.trim();
-
-            // Display results with formatting
             const formattedText = text.replace(/\n/g, '<br>');
             aiBox.innerHTML = `✨ <strong>심리 상담 분석</strong><br><br>${formattedText}`;
 
-            // Save to localStorage
-            localStorage.setItem('savedDiaryText', diaryText);
-            localStorage.setItem('savedAiResponse', aiBox.innerHTML);
-
-            // Fetch history again to show the latest entry
             fetchHistory();
         } catch (error) {
             console.error('API Error:', error);
-            aiBox.innerHTML = `❌ <strong>AI 분석 오류:</strong><br><br>${error.message || '서버와의 통신 중 오류가 발생했습니다.'}`;
+            aiBox.innerHTML = `❌ <strong>AI 분석 오류:</strong><br><br>${error.message}`;
             aiBox.style.borderColor = '#ff7675';
             aiBox.style.color = '#d63031';
         } finally {
@@ -142,44 +271,24 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // Voice Recognition implementation
     const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    
     if (Recognition) {
         const recognition = new Recognition();
         recognition.lang = 'ko-KR';
-        recognition.interimResults = false;
-        recognition.continuous = false;
-
         recognition.onstart = () => {
             voiceBtn.disabled = true;
             voiceBtn.innerHTML = '<span>🎙️</span> 음성 인식 중...';
             voiceBtn.classList.add('voice-active');
-            voiceBtn.style.background = '#ffeaa7';
-            voiceBtn.style.color = '#d35400';
-            resetAIBox();
         };
-
         recognition.onresult = (event) => {
             const transcript = event.results[0][0].transcript;
             diaryInput.value += (diaryInput.value ? ' ' : '') + transcript;
         };
-
-        recognition.onerror = (event) => {
-            console.error('Speech recognition error:', event.error);
-            alert('음성 인식 중 오류가 발생했습니다.');
-        };
-
         recognition.onend = () => {
             voiceBtn.disabled = false;
             voiceBtn.innerHTML = '<span>🎙️</span> 음성으로 입력하기';
             voiceBtn.classList.remove('voice-active');
-            voiceBtn.style.background = 'white';
-            voiceBtn.style.color = '#2d3436';
         };
-
         voiceBtn.addEventListener('click', () => recognition.start());
-    } else {
-        voiceBtn.addEventListener('click', () => alert('이 브라우저는 음성 인식을 지원하지 않습니다.'));
     }
 });
