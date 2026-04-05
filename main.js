@@ -25,12 +25,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     const historyContainer = document.getElementById('historyContainer');
     const INITIAL_AI_TEXT = '여기에 AI의 답변이 표시됩니다.';
 
-    // DOM Elements - Chat
+    // DOM Elements - Chat Modal
+    const chatModal = document.getElementById('chatModal');
+    const openChatBtn = document.getElementById('openChatBtn');
+    const closeChatBtn = document.getElementById('closeChatBtn');
     const chatMessages = document.getElementById('chatMessages');
     const chatForm = document.getElementById('chatForm');
     const chatInput = document.getElementById('chatInput');
 
     let currentUser = null;
+    let chatChannel = null;
 
     // Helper to get access token
     async function getAuthHeaders() {
@@ -108,10 +112,24 @@ document.addEventListener('DOMContentLoaded', async () => {
         appContainer.style.display = 'flex';
         userEmailDisplay.innerText = user.email;
         fetchHistory(); 
-        initializeChat(); 
+        initializeChat(); // Pre-load chat data
     }
 
-    // --- Real-time Chat Logic ---
+    // --- Chat Modal & Logic ---
+
+    openChatBtn.addEventListener('click', () => {
+        chatModal.style.display = 'flex';
+        chatMessages.scrollTop = chatMessages.scrollHeight; // Scroll to bottom when opening
+    });
+
+    closeChatBtn.addEventListener('click', () => {
+        chatModal.style.display = 'none';
+    });
+
+    // Close on overlay click
+    chatModal.addEventListener('click', (e) => {
+        if (e.target === chatModal) chatModal.style.display = 'none';
+    });
 
     async function initializeChat() {
         const { data, error } = await supabase
@@ -125,12 +143,14 @@ document.addEventListener('DOMContentLoaded', async () => {
             data.forEach(msg => appendMessage(msg));
         }
 
-        supabase
-            .channel('public:messages')
-            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, payload => {
-                appendMessage(payload.new);
-            })
-            .subscribe();
+        if (!chatChannel) {
+            chatChannel = supabase
+                .channel('public:messages')
+                .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, payload => {
+                    appendMessage(payload.new);
+                })
+                .subscribe();
+        }
     }
 
     function appendMessage(msg) {
@@ -148,11 +168,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         sender.innerText = msg.user_email || '익명';
 
         const text = document.createElement('div');
-        text.innerText = msg.content; // Use 'content' as requested
+        text.innerText = msg.content; 
 
         msgDiv.appendChild(sender);
         msgDiv.appendChild(text);
         chatMessages.appendChild(msgDiv);
+
         chatMessages.scrollTop = chatMessages.scrollHeight;
     }
 
@@ -161,7 +182,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         const contentText = chatInput.value.trim();
         if (!contentText || !currentUser) return;
 
-        // Clear input immediately as requested
         chatInput.value = '';
 
         const { error } = await supabase
@@ -169,7 +189,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             .insert([{
                 user_id: currentUser.id,
                 user_email: currentUser.email,
-                content: contentText // Use 'content' field
+                content: contentText 
             }]);
 
         if (error) {
