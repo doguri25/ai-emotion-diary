@@ -1,21 +1,18 @@
 {
-  "name": "diary",
+  "name": "kukto-fitness-marathon",
   "version": "1.0.0",
-  "description": "",
-  "main": "main.js",
+  "description": "초등학교 모둠·반 국토 체력마라톤",
+  "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node --input-type=module src/paps.test.js"
   },
-  "keywords": [],
+  "keywords": ["fitness", "elementary", "korea", "paps"],
   "author": "",
   "license": "ISC",
-  "type": "commonjs",
   "dependencies": {
-    "@google/generative-ai": "^0.24.1",
-    "@supabase/supabase-js": "^2.101.1",
-    "ioredis": "^5.10.1",
     "vite": "^8.0.3"
   }
 }
