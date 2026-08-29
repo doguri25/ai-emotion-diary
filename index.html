@@ -1,129 +1,18 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI 감정 일기 - 오늘의 하루는 어땠나요?</title>
-    <meta name="description" content="AI가 당신의 감정을 분석하고 따뜻한 위로를 전해주는 감정 일기 애플리케이션입니다.">
-    <link rel="stylesheet" href="style.css">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=Noto+Sans+KR:wght@400;700&display=swap" rel="stylesheet">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>토토와 체력마라톤</title>
+  <meta name="description" content="초등학교 모둠·반이 함께 우리나라를 달리는 국토 체력마라톤">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Gaegu:wght@400;700&family=Jua&family=Noto+Sans+KR:wght@400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/src/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🦊</text></svg>">
 </head>
 <body>
-    <!-- Login Screen -->
-    <div id="loginContainer" class="auth-container">
-        <div class="auth-card">
-            <div class="app-icon-container">
-                <img src="icon.png" alt="AI 감정 일기 아이콘" class="app-icon">
-            </div>
-            <h1>AI 감정 일기</h1>
-            <p class="auth-subtitle">당신의 하루를 기록하고 위로를 받으세요.</p>
-            
-            <form id="authForm" class="auth-form">
-                <div class="input-group">
-                    <label for="email">이메일</label>
-                    <input type="email" id="email" placeholder="example@email.com" required>
-                </div>
-                <div class="input-group">
-                    <label for="password">비밀번호</label>
-                    <input type="password" id="password" placeholder="••••••••" required>
-                </div>
-                <div class="auth-buttons">
-                    <button type="submit" id="loginBtn" class="primary-btn">로그인</button>
-                    <button type="button" id="signUpBtn" class="secondary-btn">회원가입</button>
-                </div>
-            </form>
-
-            <div class="divider">
-                <span>또는</span>
-            </div>
-
-            <button id="googleLoginBtn" class="google-btn">
-                <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google" width="18">
-                Google로 로그인
-            </button>
-        </div>
-    </div>
-
-    <!-- Main App Content (Hidden by default) -->
-    <div id="appContainer" class="container" style="display: none;">
-        <header>
-            <div class="header-top">
-                <span id="userEmail" class="user-email"></span>
-                <div class="header-buttons">
-                    <button id="openChatBtn" class="open-chat-btn">💬 실시간 채팅</button>
-                    <button id="logoutBtn" class="logout-btn">로그아웃</button>
-                </div>
-            </div>
-            <div class="app-icon-container">
-                <img src="icon.png" alt="AI 감정 일기 아이콘" class="app-icon">
-            </div>
-            <h1>오늘의 하루는 어땠나요?</h1>
-        </header>
-
-        <main>
-            <section class="input-section">
-                <textarea id="diaryInput" class="diary-input" placeholder="오늘 있었던 일과 느꼈던 솔직한 감정을 적어주세요..."></textarea>
-            </section>
-
-            <section class="button-group">
-                <button id="voiceBtn" class="voice-btn">
-                    <span>🎙️</span> 음성으로 입력하기
-                </button>
-                <button id="analyzeBtn" class="analyze-btn">
-                    <span>💡</span> 분석 요청하기
-                </button>
-            </section>
-
-            <section id="aiResponseSection" class="ai-response-section">
-                <h2>AI 답변</h2>
-                <div id="aiBox" class="ai-box">
-                    여기에 AI의 답변이 표시됩니다.
-                </div>
-            </section>
-
-            <section class="history-section">
-                <div class="history-header">
-                    <h2>나의 일기 히스토리</h2>
-                </div>
-                <div id="historyContainer" class="history-container">
-                    <!-- History cards will be injected here -->
-                    <div class="history-loading">불러오는 중...</div>
-                </div>
-            </section>
-        </main>
-    </div>
-
-    <!-- Chat Modal -->
-    <div id="chatModal" class="modal-overlay" style="display: none;">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h2>실시간 채팅</h2>
-                <button id="closeChatBtn" class="close-modal-btn">&times;</button>
-            </div>
-            
-            <div class="profile-section">
-                <div class="avatar-container" id="avatarTrigger">
-                    <img id="userAvatar" src="https://ui-avatars.com/api/?name=User&background=6c5ce7&color=fff" alt="프로필 사진">
-                    <div class="avatar-overlay"><span>편집</span></div>
-                </div>
-                <button type="button" id="changePhotoTextBtn" class="change-photo-btn">사진 변경</button>
-                <input type="file" id="avatarInput" accept="image/*" style="display: none;">
-            </div>
-
-            <div id="chatMessages" class="chat-messages">
-                <div class="chat-empty">환영합니다! 메시지를 남겨보세요.</div>
-            </div>
-            <form id="chatForm" class="chat-form">
-                <input type="text" id="chatInput" placeholder="다른 사람들과 대화해보세요..." required>
-                <button type="button" id="attachBtn" class="attach-btn">📎</button>
-                <button type="submit" id="sendChatBtn">전송</button>
-                <input type="file" id="chatImageInput" accept="image/*" style="display: none;">
-            </form>
-        </div>
-    </div>
-
-    <script type="module" src="/main.js?v=auth_v2"></script>
+  <div id="app"></div>
+  <script type="module" src="/src/app.js"></script>
 </body>
 </html>
