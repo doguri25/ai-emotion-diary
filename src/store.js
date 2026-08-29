@@ -1,16 +1,15 @@
-const KEY = "kukto-marathon-v1";
+import { seedStudents } from "./data.js";
 
-const emptyTeam = () => ({
-  mode: null, // "group" | "class"
-  name: "",
-  grade: 4,
-  members: 5,
-  createdAt: null,
-});
+const KEY = "kukto-marathon-v2";
 
 export function defaultState() {
   return {
-    team: emptyTeam(),
+    settings: {
+      mode: "class",
+      startCityId: null,
+    },
+    students: seedStudents(),
+    session: { studentId: null },
     logs: [],
     seenArrivals: [],
     pendingArrivalId: null,
@@ -32,7 +31,16 @@ export function loadState() {
   try {
     const raw = localStorage.getItem(KEY);
     if (!raw) return defaultState();
-    return { ...defaultState(), ...JSON.parse(raw) };
+    const parsed = JSON.parse(raw);
+    const base = defaultState();
+    return {
+      ...base,
+      ...parsed,
+      settings: { ...base.settings, ...(parsed.settings || {}) },
+      session: { ...base.session, ...(parsed.session || {}) },
+      students: Array.isArray(parsed.students) && parsed.students.length ? parsed.students : base.students,
+      profile: { ...base.profile, ...(parsed.profile || {}) },
+    };
   } catch {
     return defaultState();
   }
@@ -54,10 +62,4 @@ export function todayStr(d = new Date()) {
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
-}
-
-export function addDays(dateStr, days) {
-  const d = new Date(`${dateStr}T12:00:00`);
-  d.setDate(d.getDate() + days);
-  return todayStr(d);
 }

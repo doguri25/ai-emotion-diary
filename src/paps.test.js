@@ -1,3 +1,4 @@
+import { getCourse } from "./data.js";
 import { mapPapsToActivities } from "./paps.js";
 
 function assert(cond, msg) {
@@ -20,5 +21,10 @@ assert(c.activities.includes("스트레칭"), "stretch when all strong");
 
 const d = mapPapsToActivities({}, false);
 assert(d.source === "없음", "empty");
+
+const course = getCourse("seoul");
+assert(course[0].id === "seoul", "start seoul");
+assert(course[0].km === 0, "start km 0");
+assert(course.some((c) => c.id === "busan" && c.km > 0), "busan after seoul");
 
 console.log("paps mapping tests passed");

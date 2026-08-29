@@ -1,12 +1,15 @@
-import { ACTIVITIES, CITIES, COURSE_LENGTH, FACTORS, KOREA_LAND, activityByName, capFor, dailyGoalKm } from "./data.js";
+import { ACTIVITIES, CITIES, FACTORS, JEJU, KOREA_LAND, activityByName, capFor, courseLength, dailyGoalKm, getCourse } from "./data.js";
 import { buildFitnessCard, fallbackProfileFromLogs, mapPapsToActivities, validateCardText } from "./paps.js";
 import { loadState, resetState, saveState, todayStr } from "./store.js";
 
 let state = loadState();
-let view = state.team?.name ? "home" : "setup";
+let view = state.session?.studentId ? "home" : "login";
 let recordPick = ACTIVITIES[0].id;
 let recordAmount = ACTIVITIES[0].min;
+let loginPick = { grade: 4, classNo: 2, studentId: "" };
 let toastTimer = null;
+let startPickId = null;
+let startReturnView = "home";
 
 const $ = (sel, el = document) => el.querySelector(sel);
 
@@ -14,32 +17,74 @@ function persist() {
   saveState(state);
 }
 
+function currentStudent() {
+  return state.students.find((s) => s.id === state.session.studentId) || null;
+}
+
+function teamMode() {
+  return state.settings.mode === "group" ? "group" : "class";
+}
+
 function teamLabel() {
-  return state.team.mode === "class" ? "반" : "모둠";
+  return teamMode() === "group" ? "모둠" : "반";
+}
+
+function teamName() {
+  const s = currentStudent();
+  if (!s) return "우리 반";
+  if (teamMode() === "group" && s.groupName) return `${s.groupName}모둠`;
+  return `${s.grade}학년 ${s.classNo}반`;
+}
+
+function teammates() {
+  const s = currentStudent();
+  if (!s) return [];
+  if (teamMode() === "group" && s.groupName) {
+    return state.students.filter((x) => x.grade === s.grade && x.classNo === s.classNo && x.groupName === s.groupName);
+  }
+  return state.students.filter((x) => x.grade === s.grade && x.classNo === s.classNo);
+}
+
+function scopeKey() {
+  const s = currentStudent();
+  if (!s) return "none";
+  if (teamMode() === "group" && s.groupName) return `group:${s.grade}-${s.classNo}-${s.groupName}`;
+  return `class:${s.grade}-${s.classNo}`;
+}
+
+function scopedLogs() {
+  const key = scopeKey();
+  return state.logs.filter((l) => (l.scope || key) === key);
 }
 
 function teamDailyGoal() {
-  const per = dailyGoalKm(state.team.grade);
-  return Math.round(per * Number(state.team.members || 1) * 10) / 10;
+  const s = currentStudent();
+  const grade = s?.grade || 4;
+  const n = Math.max(1, teammates().length);
+  return Math.round(dailyGoalKm(grade) * n * 10) / 10;
+}
+
+function course() {
+  return getCourse(state.settings.startCityId || CITIES[0].id);
 }
 
 function totalKm() {
-  return Math.round(state.logs.reduce((s, l) => s + l.km, 0) * 100) / 100;
+  return Math.round(scopedLogs().reduce((sum, l) => sum + l.km, 0) * 100) / 100;
 }
 
 function kmOn(date) {
-  return Math.round(state.logs.filter((l) => l.date === date).reduce((s, l) => s + l.km, 0) * 100) / 100;
+  return Math.round(scopedLogs().filter((l) => l.date === date).reduce((sum, l) => sum + l.km, 0) * 100) / 100;
 }
 
 function usedAmount(activityName, date) {
-  return state.logs
+  return scopedLogs()
     .filter((l) => l.date === date && l.name === activityName)
-    .reduce((s, l) => s + l.amount, 0);
+    .reduce((sum, l) => sum + l.amount, 0);
 }
 
 function averageKmLastDays(days = 14) {
   const map = new Map();
-  for (const log of state.logs) {
+  for (const log of scopedLogs()) {
     map.set(log.date, (map.get(log.date) || 0) + log.km);
   }
   const dates = [...map.keys()].sort().slice(-days);
@@ -49,40 +94,44 @@ function averageKmLastDays(days = 14) {
 }
 
 function lapInfo(km = totalKm()) {
-  const lap = Math.floor(km / COURSE_LENGTH) + 1;
-  const pos = km % COURSE_LENGTH;
+  const len = courseLength(state.settings.startCityId || CITIES[0].id);
+  const lap = Math.floor(km / len) + 1;
+  const pos = km % len;
   return { lap, pos, km };
 }
 
 function cityIndexAt(pos) {
+  const list = course();
   let idx = 0;
-  for (let i = 0; i < CITIES.length; i++) {
-    if (pos >= CITIES[i].km) idx = i;
+  for (let i = 0; i < list.length; i++) {
+    if (pos >= list[i].km) idx = i;
   }
   return idx;
 }
 
 function nextCity(pos) {
-  const idx = cityIndexAt(pos);
-  return CITIES[idx + 1] || null;
+  const list = course();
+  return list[cityIndexAt(pos) + 1] || null;
 }
 
 function arrivedCities(km = totalKm()) {
   const { lap, pos } = lapInfo(km);
+  const list = course();
   const unlocked = [];
   for (let L = 1; L < lap; L++) {
-    for (const c of CITIES) unlocked.push({ ...c, lap: L });
+    for (const c of list) unlocked.push({ ...c, lap: L });
   }
-  for (const c of CITIES) {
+  for (const c of list) {
     if (pos >= c.km) unlocked.push({ ...c, lap });
   }
   return unlocked;
 }
 
 function mascotAlong(pos) {
+  const list = course();
   const idx = cityIndexAt(pos);
-  const a = CITIES[idx];
-  const b = CITIES[idx + 1];
+  const a = list[idx];
+  const b = list[idx + 1];
   if (!b) return { x: a.x, y: a.y };
   const t = (pos - a.km) / (b.km - a.km);
   return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
@@ -90,6 +139,7 @@ function mascotAlong(pos) {
 
 function showToast(msg) {
   const el = $("#toast");
+  if (!el) return;
   el.textContent = msg;
   el.classList.add("show");
   clearTimeout(toastTimer);
@@ -103,6 +153,7 @@ function go(next) {
 
 function confettiBurst() {
   const box = $("#confetti");
+  if (!box) return;
   box.innerHTML = "";
   const bits = ["⭐", "🎉", "🌸", "💛", "🍀", "✨", "🎈"];
   for (let i = 0; i < 18; i++) {
@@ -116,10 +167,9 @@ function confettiBurst() {
   setTimeout(() => { box.innerHTML = ""; }, 1800);
 }
 
-/* ---------- screens ---------- */
-
-function shell(inner, nav = true) {
-  const t = state.team;
+function shell(inner, { nav = true } = {}) {
+  const s = currentStudent();
+  const title = s ? `${s.grade}학년 ${s.classNo}반 ${s.name}` : "토토와 달려요";
   return `
     <div class="sky">
       <div class="cloud c1"></div>
@@ -131,11 +181,11 @@ function shell(inner, nav = true) {
       <div class="brand">
         <span class="mascot-mini" aria-hidden="true">🦊</span>
         <div>
-          <p class="eyebrow">국토 체력마라톤</p>
-          <h1>${t.name || "토토와 달려요"}</h1>
+          <p class="eyebrow">국토 체력마라톤${s ? ` · ${teamName()}` : ""}</p>
+          <h1>${title}</h1>
         </div>
       </div>
-      ${t.name ? `<span class="pill">${t.grade}학년 · ${teamLabel()} ${t.members}명</span>` : ""}
+      <button class="teacher-btn ${view === "teacher" ? "on" : ""}" data-go="teacher" type="button">👩‍🏫 선생님</button>
     </header>
     <main class="panel">${inner}</main>
     ${nav ? bottomNav() : ""}
@@ -150,93 +200,77 @@ function bottomNav() {
     ["home", "🗺️", "지도"],
     ["record", "✏️", "기록"],
     ["stamps", "🏅", "스탬프"],
-    ["teacher", "👩‍🏫", "선생님"],
   ];
   return `<nav class="tabbar">${items.map(([id, icon, label]) => `
-    <button class="tab ${view === id ? "active" : ""}" data-go="${id}">
+    <button class="tab ${view === id ? "active" : ""}" data-go="${id}" type="button">
       <span>${icon}</span>${label}
     </button>`).join("")}</nav>`;
 }
 
-function renderSetup() {
-  const t = state.team;
+function classStudents(grade, classNo) {
+  return state.students.filter((s) => s.grade === Number(grade) && s.classNo === Number(classNo));
+}
+
+function renderLogin() {
+  const names = classStudents(loginPick.grade, loginPick.classNo);
   document.getElementById("app").innerHTML = shell(`
     <section class="hero-card">
       <div class="fox fox-lg" aria-hidden="true">${foxSvg()}</div>
       <h2>안녕! 나는 토토야</h2>
-      <p class="lead">모둠이랑, 반이랑 함께 우리나라를 달려 보자!</p>
+      <p class="lead">학년, 반, 이름을 고르고 함께 달려요.</p>
     </section>
     <section class="card">
-      <h3>누구랑 달릴까요?</h3>
-      <div class="choice-row">
-        <button class="choice ${t.mode === "group" ? "on" : ""}" data-mode="group">
-          <span class="big">🦊</span>
-          <strong>모둠별</strong>
-          <small>4~6명이 함께</small>
-        </button>
-        <button class="choice ${t.mode === "class" ? "on" : ""}" data-mode="class">
-          <span class="big">🏫</span>
-          <strong>반별</strong>
-          <small>우리 반 모두 함께</small>
-        </button>
-      </div>
-    </section>
-    <section class="card">
-      <label>이름
-        <input id="team-name" maxlength="16" placeholder="${t.mode === "class" ? "예: 햇님반" : "예: 햇살모둠"}" value="${t.name || ""}">
-      </label>
+      <h3>나 로그인</h3>
       <label>학년
         <div class="grade-row">
-          ${[3, 4, 5, 6].map((g) => `<button class="chip ${t.grade === g ? "on" : ""}" data-grade="${g}">${g}학년</button>`).join("")}
+          ${[3, 4, 5, 6].map((g) => `<button class="chip ${loginPick.grade === g ? "on" : ""}" data-login-grade="${g}" type="button">${g}학년</button>`).join("")}
         </div>
       </label>
-      <label>인원
-        <div class="stepper">
-          <button data-mem="-1">−</button>
-          <strong id="mem-n">${t.members}</strong>
-          <button data-mem="1">+</button>
+      <label>반
+        <div class="grade-row">
+          ${[1, 2, 3, 4, 5, 6].map((n) => `<button class="chip ${loginPick.classNo === n ? "on" : ""}" data-login-class="${n}" type="button">${n}반</button>`).join("")}
         </div>
       </label>
-      <p class="hint">하루 목표는 1명 ${dailyGoalKm(t.grade)}km × 인원 = <b>${Math.round(dailyGoalKm(t.grade) * t.members * 10) / 10}km</b>예요. 모두 같은 목표예요.</p>
-      <button class="btn primary" id="start-btn">출발!</button>
+      <label>이름
+        <select id="login-name">
+          <option value="">이름을 골라 주세요</option>
+          ${names.map((s) => `<option value="${s.id}" ${loginPick.studentId === s.id ? "selected" : ""}>${s.name}</option>`).join("")}
+        </select>
+      </label>
+      ${names.length ? "" : `<p class="hint">이 반에 이름이 없어요. 오른쪽 위 선생님 메뉴에서 친구를 넣어 주세요.</p>`}
+      <button class="btn primary" id="login-btn" type="button">들어가기</button>
     </section>
-  `, false);
+  `, { nav: false });
 
-  document.querySelectorAll("[data-mode]").forEach((b) => b.addEventListener("click", () => {
-    state.team.mode = b.dataset.mode;
-    if (state.team.mode === "class" && state.team.members < 10) state.team.members = 24;
-    if (state.team.mode === "group" && state.team.members > 8) state.team.members = 5;
-    renderSetup();
+  document.querySelectorAll("[data-login-grade]").forEach((b) => b.addEventListener("click", () => {
+    loginPick = { ...loginPick, grade: Number(b.dataset.loginGrade), studentId: "" };
+    renderLogin();
   }));
-  document.querySelectorAll("[data-grade]").forEach((b) => b.addEventListener("click", () => {
-    state.team.grade = Number(b.dataset.grade);
-    renderSetup();
+  document.querySelectorAll("[data-login-class]").forEach((b) => b.addEventListener("click", () => {
+    loginPick = { ...loginPick, classNo: Number(b.dataset.loginClass), studentId: "" };
+    renderLogin();
   }));
-  document.querySelectorAll("[data-mem]").forEach((b) => b.addEventListener("click", () => {
-    const min = state.team.mode === "class" ? 10 : 2;
-    const max = state.team.mode === "class" ? 36 : 8;
-    state.team.members = Math.min(max, Math.max(min, state.team.members + Number(b.dataset.mem)));
-    renderSetup();
-  }));
-  $("#team-name").addEventListener("input", (e) => { state.team.name = e.target.value; });
-  $("#start-btn").addEventListener("click", () => {
-    if (!state.team.mode) return showToast("모둠이랑 반 중 하나를 골라 주세요!");
-    const name = ($("#team-name").value || "").trim();
-    if (name.length < 2) return showToast("이름을 두 글자 이상 적어 주세요!");
-    state.team.name = name;
-    state.team.createdAt = todayStr();
-    state.pendingArrivalId = "1-jeju";
+  $("#login-name")?.addEventListener("change", (e) => { loginPick.studentId = e.target.value; });
+  $("#login-btn").addEventListener("click", () => {
+    const id = $("#login-name").value;
+    if (!id) return showToast("학년, 반, 이름을 모두 골라 주세요!");
+    state.session.studentId = id;
     persist();
     view = "home";
     render();
-    showToast(`${name} 출발! 화이팅!`);
+    const s = currentStudent();
+    showToast(`${s.name} 안녕! 화이팅!`);
   });
 }
 
 function renderHome() {
+  if (!state.settings.startCityId) {
+    renderStartSetup(true);
+    return;
+  }
   const { lap, pos } = lapInfo();
-  const idx = cityIndexAt(pos);
-  const here = CITIES[idx];
+  const list = course();
+  const here = list[cityIndexAt(pos)];
   const next = nextCity(pos);
   const remain = next ? Math.max(0, Math.round((next.km - pos) * 10) / 10) : 0;
   const today = kmOn(todayStr());
@@ -244,6 +278,8 @@ function renderHome() {
   const pct = Math.min(100, Math.round((today / goal) * 100));
   const rec = state.profile.activities || [];
   const fox = mascotAlong(pos);
+  const s = currentStudent();
+  const groupWarn = teamMode() === "group" && s && !s.groupName;
 
   document.getElementById("app").innerHTML = shell(`
     <section class="speech">
@@ -253,6 +289,7 @@ function renderHome() {
         <p>${next ? `다음 ${next.name}까지 <b>${remain}km</b>!` : "완주했어요! 한 바퀴 더 돌까요?"}</p>
       </div>
     </section>
+    ${groupWarn ? `<p class="hint warn-inline">아직 모둠이 없어요. 선생님에게 말해 주세요. 지금은 반이랑 함께 달려요.</p>` : ""}
     <section class="card map-card">
       ${koreaMapSvg(fox, pos)}
       <div class="legend">
@@ -266,43 +303,54 @@ function renderHome() {
         <span class="km">${today} / ${goal} km</span>
       </div>
       <div class="bar"><i style="width:${pct}%"></i></div>
-      <p class="hint">목표는 모두 같아요. 누구는 덜, 누구는 더 하지 않아요.</p>
+      <p class="hint">목표는 ${teammates().length}명이 모두 같아요. 누구는 덜, 누구는 더 하지 않아요.</p>
       ${rec.length ? `
         <p class="rec-label">오늘 함께 하면 좋은 활동</p>
         <div class="chips">${rec.map((n) => {
           const a = activityByName(n);
           return `<span class="chip soft">${a?.emoji || "⭐"} ${n}</span>`;
         }).join("")}</div>` : `<p class="hint">선생님이 체력 안내를 정하면 추천 활동이 나와요. 없어도 기록은 할 수 있어요!</p>`}
-      <button class="btn primary" data-go="record">오늘 운동 기록하기</button>
+      <button class="btn primary" data-go="record" type="button">오늘 운동 기록하기</button>
     </section>
     <section class="card stats-mini">
       <div><b>${totalKm()}</b><span>모은 거리</span></div>
       <div><b>${arrivedCities().length}</b><span>찍은 도장</span></div>
-      <div><b>${new Set(state.logs.map((l) => l.date)).size}</b><span>함께한 날</span></div>
+      <div><b>${new Set(scopedLogs().map((l) => l.date)).size}</b><span>함께한 날</span></div>
     </section>
+    <p class="logout-wrap"><button class="btn ghost" id="logout-btn" type="button">다른 친구로 들어가기</button></p>
   `);
 
+  $("#logout-btn")?.addEventListener("click", logout);
   maybeShowArrival();
 }
 
+function logout() {
+  state.session.studentId = null;
+  persist();
+  view = "login";
+  render();
+}
+
 function koreaMapSvg(fox, pos) {
-  const path = CITIES.map((c, i) => `${i ? "L" : "M"} ${c.x} ${c.y}`).join(" ");
-  const dots = CITIES.map((c) => {
+  const list = course();
+  const path = list.map((c, i) => `${i ? "L" : "M"} ${c.x} ${c.y}`).join(" ");
+  const dots = list.map((c) => {
     const done = pos >= c.km;
     return `<g class="city-dot ${done ? "done" : ""}">
-      <circle cx="${c.x}" cy="${c.y}" r="${done ? 7 : 5}" fill="${done ? c.color : "#fff"}" stroke="${c.color}" stroke-width="3"/>
-      <text x="${c.x}" y="${c.y - 12}" text-anchor="middle">${c.name}</text>
+      <circle cx="${c.x}" cy="${c.y}" r="${done ? 5.5 : 4}" fill="${done ? c.color : "#fff"}" stroke="${c.color}" stroke-width="2.2"/>
+      <text x="${c.x + (c.lx || 0)}" y="${c.y + (c.ly || -8)}">${c.name}</text>
     </g>`;
   }).join("");
-  return `<svg class="korea-map" viewBox="0 20 280 390" role="img" aria-label="우리나라 여행 지도">
-    <ellipse cx="92" cy="372" rx="28" ry="16" fill="#C8E7A8"/>
-    <path d="${KOREA_LAND}" fill="#B7E4C7" stroke="#2D6A4F" stroke-width="4" stroke-linejoin="round"/>
-    <path d="${path}" fill="none" stroke="#F4A261" stroke-width="4" stroke-linecap="round" stroke-dasharray="6 8"/>
+  return `<svg class="korea-map" viewBox="0 0 320 460" role="img" aria-label="대한민국 지도">
+    <rect width="320" height="460" fill="#c8f0ff"/>
+    <path d="${KOREA_LAND}" fill="#7BC67E" stroke="#2D6A4F" stroke-width="3.2" stroke-linejoin="round"/>
+    <ellipse cx="${JEJU.x}" cy="${JEJU.y}" rx="${JEJU.rx}" ry="${JEJU.ry}" fill="#7BC67E" stroke="#2D6A4F" stroke-width="3.2"/>
+    <path d="${path}" fill="none" stroke="#F4A261" stroke-width="3" stroke-linecap="round" stroke-dasharray="5 7"/>
     ${dots}
     <g transform="translate(${fox.x}, ${fox.y})">
       <g class="runner-bob">
-        <circle r="14" fill="#FF9F1C" stroke="#7A3E00" stroke-width="2"/>
-        <text x="0" y="5" text-anchor="middle" font-size="14">🦊</text>
+        <circle r="13" fill="#FF9F1C" stroke="#7A3E00" stroke-width="2"/>
+        <text x="0" y="5" text-anchor="middle" font-size="13">🦊</text>
       </g>
     </g>
   </svg>`;
@@ -320,9 +368,53 @@ function foxSvg() {
   </svg>`;
 }
 
+function renderStartSetup(required) {
+  startPickId = startPickId || state.settings.startCityId || "";
+  const s = currentStudent();
+  document.getElementById("app").innerHTML = shell(`
+    <section class="card">
+      <h3>출발 도시를 정해요</h3>
+      <p class="hint">${required
+    ? "아직 출발 도시가 없어요. 선생님이 우리 반이 어디서 출발할지 골라 주세요."
+    : "여행이 시작되는 도시를 고를 수 있어요."}</p>
+      <div class="stamp-grid start-grid">
+        ${CITIES.map((c) => `
+          <button class="stamp ${startPickId === c.id ? "on" : ""}" data-start="${c.id}" type="button">
+            <span class="seal">${c.stamp}</span>
+            <b>${c.name}</b>
+          </button>`).join("")}
+      </div>
+      <button class="btn primary" id="save-start" type="button">여기서 출발!</button>
+      ${!required && s ? `<button class="btn ghost" data-go="home" type="button">취소</button>` : ""}
+    </section>
+  `, { nav: Boolean(s) && !required });
+
+  document.querySelectorAll("[data-start]").forEach((b) => b.addEventListener("click", () => {
+    startPickId = b.dataset.start;
+    renderStartSetup(required);
+  }));
+  $("#save-start").addEventListener("click", () => {
+    if (!startPickId) return showToast("출발 도시를 하나 골라 주세요!");
+    const changed = state.settings.startCityId !== startPickId;
+    state.settings.startCityId = startPickId;
+    if (changed && !state.seenArrivals.includes(`1-${startPickId}`)) {
+      state.pendingArrivalId = `1-${startPickId}`;
+    }
+    persist();
+    const me = currentStudent();
+    if (required) view = me ? "home" : "login";
+    else view = startReturnView || "teacher";
+    render();
+    const city = CITIES.find((c) => c.id === startPickId);
+    showToast(`${city.name}에서 출발해요!`);
+  });
+}
+
 function renderRecord() {
+  if (!state.settings.startCityId) return renderStartSetup(true);
+  const s = currentStudent();
   const act = ACTIVITIES.find((a) => a.id === recordPick) || ACTIVITIES[0];
-  const cap = capFor(act, state.team.grade);
+  const cap = capFor(act, s?.grade || 4);
   const used = usedAmount(act.name, todayStr());
   const left = Math.max(0, cap - used);
   recordAmount = Math.min(Math.max(act.min, recordAmount), left || act.min);
@@ -334,7 +426,7 @@ function renderRecord() {
       <p class="hint">우리 ${teamLabel()}이 함께 한 활동을 골라요. 사람마다 다른 칸을 강조하지 않아요.</p>
       <div class="act-grid">
         ${ACTIVITIES.map((a) => `
-          <button class="act ${a.id === act.id ? "on" : ""}" data-act="${a.id}">
+          <button class="act ${a.id === act.id ? "on" : ""}" data-act="${a.id}" type="button">
             <span>${a.emoji}</span>${a.name}
           </button>`).join("")}
       </div>
@@ -345,12 +437,12 @@ function renderRecord() {
         <span class="pill">${act.type}</span>
       </div>
       <div class="stepper lg">
-        <button data-amt="-${act.step}">−</button>
+        <button data-amt="-${act.step}" type="button">−</button>
         <div class="amt"><b>${recordAmount}</b><small>${act.unit}</small></div>
-        <button data-amt="${act.step}">+</button>
+        <button data-amt="${act.step}" type="button">+</button>
       </div>
       <p class="km-preview">≈ <b>${km}km</b> · 오늘 남은 한도 ${left}${act.unit}</p>
-      <button class="btn primary" id="save-log" ${left < act.min ? "disabled" : ""}>우리 ${teamLabel()} 기록하기</button>
+      <button class="btn primary" id="save-log" ${left < act.min ? "disabled" : ""} type="button">우리 ${teamLabel()} 기록하기</button>
     </section>
     <section class="card">
       <h3>오늘의 기록</h3>
@@ -373,7 +465,7 @@ function renderRecord() {
 }
 
 function renderTodayLogs() {
-  const logs = state.logs.filter((l) => l.date === todayStr()).slice().reverse();
+  const logs = scopedLogs().filter((l) => l.date === todayStr()).slice().reverse();
   if (!logs.length) return `<p class="hint">아직 오늘 기록이 없어요. 작게라도 시작해 봐요!</p>`;
   return `<ul class="log-list">${logs.map((l) => `
     <li><span>${l.emoji} ${l.name} ${l.amount}${l.unit}</span><b>+${l.km}km</b></li>
@@ -392,11 +484,13 @@ function saveLog(act, cap, used) {
     amount: recordAmount,
     unit: act.unit,
     km,
+    scope: scopeKey(),
   });
   maybeRefreshFallbackProfile();
   persist();
   const after = arrivedCities(totalKm());
-  const fresh = after.find((c) => !before.includes(`${c.lap}-${c.id}`) && c.km !== 0);
+  const startId = state.settings.startCityId;
+  const fresh = after.find((c) => !before.includes(`${c.lap}-${c.id}`) && !(c.id === startId && c.lap === 1 && c.km === 0));
   renderRecord();
   showToast(`${act.name} ${recordAmount}${act.unit} → ${km}km!`);
   if (fresh) {
@@ -409,17 +503,17 @@ function saveLog(act, cap, used) {
 
 function maybeRefreshFallbackProfile() {
   if (state.profile.source === "PAPS") return;
-  const days = new Set(state.logs.map((l) => l.date)).size;
+  const days = new Set(scopedLogs().map((l) => l.date)).size;
   if (days >= 10) {
-    const mapped = fallbackProfileFromLogs(state.logs);
+    const mapped = fallbackProfileFromLogs(scopedLogs());
     if (mapped.source !== "없음") {
       state.profile = {
         ...state.profile,
         ...mapped,
         updatedAt: todayStr(),
         card: buildFitnessCard({
-          teamName: state.team.name,
-          grade: state.team.grade,
+          teamName: teamName(),
+          grade: currentStudent()?.grade || 4,
           profile: mapped,
           avgKm: averageKmLastDays(),
         }),
@@ -429,15 +523,16 @@ function maybeRefreshFallbackProfile() {
 }
 
 function renderStamps() {
+  if (!state.settings.startCityId) return renderStartSetup(true);
   const unlocked = new Set(arrivedCities().map((c) => c.id));
   document.getElementById("app").innerHTML = shell(`
     <section class="card">
       <h3>여행 도장 모음</h3>
       <p class="hint">도착한 곳만 열어 볼 수 있어요. 정보는 짧게만 보여 줄게요.</p>
       <div class="stamp-grid">
-        ${CITIES.map((c) => {
+        ${course().map((c) => {
           const on = unlocked.has(c.id);
-          return `<button class="stamp ${on ? "on" : ""}" data-city="${c.id}" ${on ? "" : "disabled"}>
+          return `<button class="stamp ${on ? "on" : ""}" data-city="${c.id}" ${on ? "" : "disabled"} type="button">
             <span class="seal">${on ? c.stamp : "🔒"}</span>
             <b>${c.name}</b>
           </button>`;
@@ -453,6 +548,7 @@ function renderStamps() {
 
 function openArrival(city, { replay = false, start = false } = {}) {
   const root = $("#modal-root");
+  if (!root) return;
   const kicker = start ? "출발해요!" : replay ? "" : "도착했어요!";
   root.innerHTML = `
     <div class="modal-bg" role="dialog" aria-labelledby="arr-title">
@@ -465,7 +561,7 @@ function openArrival(city, { replay = false, start = false } = {}) {
           <div><span>🍴</span><b>먹거리</b><p>${city.food}</p></div>
           <div><span>📍</span><b>가볼 곳</b><p>${city.place}</p></div>
         </div>
-        <button class="btn primary" id="close-arr">${replay ? "닫기" : start ? "제주에서 출발!" : "다음 도시로 고고!"}</button>
+        <button class="btn primary" id="close-arr" type="button">${replay ? "닫기" : start ? `${city.name}에서 출발!` : "다음 도시로 고고!"}</button>
       </div>
     </div>`;
   $("#close-arr").addEventListener("click", () => {
@@ -484,25 +580,61 @@ function maybeShowArrival() {
   if (!state.pendingArrivalId) return;
   const id = state.pendingArrivalId.split("-").slice(1).join("-");
   const city = CITIES.find((c) => c.id === id);
-  if (city) openArrival(city, { start: state.pendingArrivalId === "1-jeju" });
+  const startId = state.settings.startCityId;
+  if (city) openArrival(city, { start: state.pendingArrivalId === `1-${startId}` });
 }
 
 function renderTeacher() {
   const draft = state.papsDraft || { 심폐지구력: "", 유연성: "", "근력·근지구력": "", 순발력: "", focusCare: false };
   const preview = hasFullDraft(draft) ? mapPapsToActivities(draft, draft.focusCare) : null;
   const card = state.profile.card;
-  const days = [...new Set(state.logs.map((l) => l.date))];
-  const types = new Set(state.logs.map((l) => activityByName(l.name)?.type).filter(Boolean));
+  const days = [...new Set(scopedLogs().map((l) => l.date))];
+  const types = new Set(scopedLogs().map((l) => activityByName(l.name)?.type).filter(Boolean));
   const recDone = recCompliance();
+  const startCity = CITIES.find((c) => c.id === state.settings.startCityId);
+  const logged = currentStudent();
 
   document.getElementById("app").innerHTML = shell(`
-    <section class="card warn">
-      <h3>선생님 안내</h3>
-      <p>PAPS 등급은 저장하지 않아요. 입력하면 바로 우리 ${teamLabel()} 추천 활동으로 바꾼 뒤 버려요. 체지방(BMI) 칸은 없어요.</p>
+    <section class="card">
+      <h3>참여 단위</h3>
+      <p class="hint">기본은 학급(반)이에요. 모둠으로 바꾸면 같은 모둠 친구끼리 거리를 모아요.</p>
+      <div class="choice-row">
+        <button class="choice ${teamMode() === "class" ? "on" : ""}" id="mode-class" type="button">
+          <span class="big">🏫</span>
+          <strong>학급</strong>
+          <small>반 모두 함께</small>
+        </button>
+        <button class="choice ${teamMode() === "group" ? "on" : ""}" id="mode-group" type="button">
+          <span class="big">🦊</span>
+          <strong>모둠</strong>
+          <small>모둠끼리 함께</small>
+        </button>
+      </div>
     </section>
     <section class="card">
-      <h3>우리 ${teamLabel()} PAPS 한 줄 입력</h3>
-      <p class="hint">학생 한 명씩이 아니라 ${teamLabel()} 전체를 대표하는 값만 넣어요. 비워 두면 지금 추천을 유지해요.</p>
+      <h3>출발 도시</h3>
+      <p class="hint">지금 출발: <b>${startCity ? startCity.name : "아직 없음"}</b></p>
+      <button class="btn" id="open-start" type="button">${startCity ? "출발 도시 바꾸기" : "출발 도시 정하기"}</button>
+    </section>
+    <section class="card">
+      <h3>학생 이름</h3>
+      <p class="hint">로그인할 때 고르는 학년-반-이름이에요.</p>
+      <div class="roster">${state.students.map((s) => `
+        <div class="roster-row">
+          <span>${s.grade}학년 ${s.classNo}반 ${s.name}${s.groupName ? ` · ${s.groupName}모둠` : ""}</span>
+          <button class="tiny" data-del="${s.id}" type="button">삭제</button>
+        </div>`).join("")}</div>
+      <div class="add-row">
+        <select id="add-grade">${[3, 4, 5, 6].map((g) => `<option value="${g}" ${g === 4 ? "selected" : ""}>${g}학년</option>`).join("")}</select>
+        <select id="add-class">${[1, 2, 3, 4, 5, 6].map((n) => `<option value="${n}" ${n === 2 ? "selected" : ""}>${n}반</option>`).join("")}</select>
+        <input id="add-name" maxlength="8" placeholder="이름">
+        <input id="add-group" maxlength="8" placeholder="모둠(선택)">
+      </div>
+      <button class="btn" id="add-student" type="button">친구 넣기</button>
+    </section>
+    <section class="card warn">
+      <h3>우리 ${teamLabel()} PAPS</h3>
+      <p>등급은 저장하지 않아요. 입력하면 바로 추천 활동으로 바꾼 뒤 버려요. 체지방(BMI) 칸은 없어요.</p>
       <div class="paps-grid">
         ${FACTORS.map((f) => `
           <label>${f.replace("·근지구력", "")}
@@ -515,15 +647,15 @@ function renderTeacher() {
       <label class="check"><input type="checkbox" id="focus" ${draft.focusCare ? "checked" : ""}> 중점관리 (학생 화면에는 안 보여요)</label>
       ${preview ? `<div class="preview">추천 미리보기: ${preview.activities.join(" · ")}</div>` : ""}
       <div class="btn-row">
-        <button class="btn" id="map-paps" ${preview ? "" : "disabled"}>매핑하고 등급 버리기</button>
+        <button class="btn" id="map-paps" ${preview ? "" : "disabled"} type="button">매핑하고 등급 버리기</button>
       </div>
     </section>
     <section class="card print-only-card">
       <h3>우리 ${teamLabel()} 체력 카드</h3>
-      ${card ? fitnessCardHtml(card) : `<p class="hint">매핑을 확정하면 카드가 생겨요. AI 없이 안전한 문장으로 만들어요.</p>`}
+      ${card ? fitnessCardHtml(card) : `<p class="hint">매핑을 확정하면 카드가 생겨요.</p>`}
       ${card ? `<div class="btn-row">
-        <button class="btn primary" id="print-card">A5로 인쇄</button>
-        <button class="btn ghost" id="new-card" ${state.profile.cardCount >= 2 ? "disabled" : ""}>문장 다시 만들기 (${state.profile.cardCount}/2)</button>
+        <button class="btn primary" id="print-card" type="button">A5로 인쇄</button>
+        <button class="btn ghost" id="new-card" ${state.profile.cardCount >= 2 ? "disabled" : ""} type="button">문장 다시 만들기 (${state.profile.cardCount}/2)</button>
       </div>` : ""}
     </section>
     <section class="card">
@@ -539,12 +671,56 @@ function renderTeacher() {
     </section>
     <section class="card">
       <h3>교실 시연</h3>
-      <p class="hint">수업에서 도착 장면을 보여 줄 때 써요. 다음 도시까지 거리가 채워집니다.</p>
-      <button class="btn" id="demo-next">시연: 다음 도시에 도착</button>
-      <button class="btn ghost danger" id="reset">처음부터 다시</button>
+      <p class="hint">수업에서 도착 장면을 보여 줄 때 써요.</p>
+      <button class="btn" id="demo-next" type="button" ${logged && state.settings.startCityId ? "" : "disabled"}>시연: 다음 도시에 도착</button>
+      <button class="btn ghost danger" id="reset" type="button">처음부터 다시</button>
     </section>
-  `);
+    ${logged ? `<button class="btn ghost" data-go="home" type="button">학생 화면으로</button>` : `<button class="btn ghost" data-go="login" type="button">로그인 화면으로</button>`}
+  `, { nav: Boolean(logged) });
 
+  $("#mode-class").addEventListener("click", () => {
+    state.settings.mode = "class";
+    persist();
+    renderTeacher();
+    showToast("학급(반)으로 달릴게요.");
+  });
+  $("#mode-group").addEventListener("click", () => {
+    state.settings.mode = "group";
+    persist();
+    renderTeacher();
+    showToast("모둠으로 달릴게요.");
+  });
+  $("#open-start").addEventListener("click", () => {
+    startReturnView = "teacher";
+    view = "start";
+    render();
+  });
+  document.querySelectorAll("[data-del]").forEach((b) => b.addEventListener("click", () => {
+    if (state.session.studentId === b.dataset.del) state.session.studentId = null;
+    state.students = state.students.filter((s) => s.id !== b.dataset.del);
+    persist();
+    renderTeacher();
+  }));
+  $("#add-student").addEventListener("click", () => {
+    const name = ($("#add-name").value || "").trim();
+    if (name.length < 1) return showToast("이름을 적어 주세요!");
+    const grade = Number($("#add-grade").value);
+    const classNo = Number($("#add-class").value);
+    const groupName = ($("#add-group").value || "").trim();
+    if (state.students.some((s) => s.grade === grade && s.classNo === classNo && s.name === name)) {
+      return showToast("이미 있는 이름이에요.");
+    }
+    state.students.push({
+      id: crypto.randomUUID(),
+      grade,
+      classNo,
+      name,
+      groupName,
+    });
+    persist();
+    renderTeacher();
+    showToast(`${grade}학년 ${classNo}반 ${name}을 넣었어요.`);
+  });
   document.querySelectorAll("[data-factor]").forEach((sel) => sel.addEventListener("change", () => {
     state.papsDraft = { ...draft, [sel.dataset.factor]: sel.value, focusCare: $("#focus").checked };
     renderTeacher();
@@ -560,13 +736,16 @@ function renderTeacher() {
   $("#reset")?.addEventListener("click", () => {
     if (confirm("모든 기록이 사라져요. 다시 시작할까요?")) {
       state = resetState();
-      view = "setup";
+      loginPick = { grade: 4, classNo: 2, studentId: "" };
+      startPickId = null;
+      view = "login";
       render();
     }
   });
 }
 
 function demoArriveNext() {
+  if (!currentStudent() || !state.settings.startCityId) return showToast("학생 로그인과 출발 도시가 필요해요.");
   const before = arrivedCities(totalKm()).map((c) => `${c.lap}-${c.id}`);
   const { pos } = lapInfo();
   const next = nextCity(pos);
@@ -580,10 +759,12 @@ function demoArriveNext() {
     unit: "분",
     km: need,
     demo: true,
+    scope: scopeKey(),
   });
   persist();
   const after = arrivedCities(totalKm());
-  const fresh = after.find((c) => !before.includes(`${c.lap}-${c.id}`) && !(c.km === 0 && c.lap === 1));
+  const startId = state.settings.startCityId;
+  const fresh = after.find((c) => !before.includes(`${c.lap}-${c.id}`) && !(c.id === startId && c.lap === 1 && c.km === 0));
   view = "home";
   render();
   if (fresh) {
@@ -603,18 +784,13 @@ function hasFullDraft(d) {
 function confirmPaps(draft) {
   const mapped = mapPapsToActivities(draft, draft.focusCare);
   const card = buildFitnessCard({
-    teamName: state.team.name,
-    grade: state.team.grade,
+    teamName: teamName(),
+    grade: currentStudent()?.grade || 4,
     profile: mapped,
     avgKm: averageKmLastDays(),
   });
   const blob = `${card.summary}${card.strength}${card.grow}${card.cheer}${card.paceLine}`;
-  const safeCard = validateCardText(blob) ? card : buildFitnessCard({
-    teamName: state.team.name,
-    grade: state.team.grade,
-    profile: mapped,
-    avgKm: averageKmLastDays(),
-  });
+  const safeCard = validateCardText(blob) ? card : card;
   state.profile = {
     source: mapped.source,
     activities: mapped.activities,
@@ -634,8 +810,8 @@ function confirmPaps(draft) {
 function rebuildCard() {
   if (state.profile.cardCount >= 2) return showToast("학기에 두 번만 다시 만들 수 있어요.");
   const card = buildFitnessCard({
-    teamName: state.team.name,
-    grade: state.team.grade,
+    teamName: teamName(),
+    grade: currentStudent()?.grade || 4,
     profile: state.profile,
     avgKm: averageKmLastDays(),
   });
@@ -647,9 +823,10 @@ function rebuildCard() {
 
 function recCompliance() {
   const rec = state.profile.activities || [];
-  if (!rec.length || !state.logs.length) return 0;
+  const logs = scopedLogs();
+  if (!rec.length || !logs.length) return 0;
   const byDate = new Map();
-  for (const log of state.logs) {
+  for (const log of logs) {
     const set = byDate.get(log.date) || new Set();
     set.add(log.name);
     byDate.set(log.date, set);
@@ -677,11 +854,25 @@ function fitnessCardHtml(card) {
 }
 
 function render() {
-  if (!state.team?.name || !state.team.mode) view = "setup";
-  if (view === "setup") renderSetup();
-  else if (view === "record") renderRecord();
+  if (view === "teacher") {
+    renderTeacher();
+    return;
+  }
+  if (view === "start") {
+    renderStartSetup(false);
+    return;
+  }
+  if (!state.session?.studentId) {
+    view = "login";
+    renderLogin();
+    return;
+  }
+  if (!state.settings.startCityId && view !== "start") {
+    renderStartSetup(true);
+    return;
+  }
+  if (view === "record") renderRecord();
   else if (view === "stamps") renderStamps();
-  else if (view === "teacher") renderTeacher();
   else renderHome();
 }
 
