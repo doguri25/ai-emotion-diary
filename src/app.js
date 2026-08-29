@@ -213,14 +213,18 @@ function classStudents(grade, classNo) {
 
 function renderLogin() {
   const names = classStudents(loginPick.grade, loginPick.classNo);
+  const modeIsGroup = teamMode() === "group";
   document.getElementById("app").innerHTML = shell(`
     <section class="hero-card">
+      <div class="deco-stars" aria-hidden="true">✨ 🌸 ⭐</div>
       <div class="fox fox-lg" aria-hidden="true">${foxSvg()}</div>
       <h2>안녕! 나는 토토야</h2>
-      <p class="lead">학년, 반, 이름을 고르고 함께 달려요.</p>
+      <p class="lead">혼자 달리는 앱이 아니에요.<br>모둠이랑 반이랑 <b>함께</b> 달려요!</p>
+      <div class="mode-badge">${modeIsGroup ? "🦊 지금은 모둠으로 달려요" : "🏫 지금은 학급(반)으로 달려요"}</div>
     </section>
     <section class="card">
       <h3>나 로그인</h3>
+      <p class="hint">학년 · 반 · 이름을 고르면, 우리 ${modeIsGroup ? "모둠" : "반"} 여행에 들어가요.</p>
       <label>학년
         <div class="grade-row">
           ${[3, 4, 5, 6].map((g) => `<button class="chip ${loginPick.grade === g ? "on" : ""}" data-login-grade="${g}" type="button">${g}학년</button>`).join("")}
@@ -234,11 +238,11 @@ function renderLogin() {
       <label>이름
         <select id="login-name">
           <option value="">이름을 골라 주세요</option>
-          ${names.map((s) => `<option value="${s.id}" ${loginPick.studentId === s.id ? "selected" : ""}>${s.name}</option>`).join("")}
+          ${names.map((s) => `<option value="${s.id}" ${loginPick.studentId === s.id ? "selected" : ""}>${s.name}${modeIsGroup && s.groupName ? ` (${s.groupName}모둠)` : ""}</option>`).join("")}
         </select>
       </label>
       ${names.length ? "" : `<p class="hint">이 반에 이름이 없어요. 오른쪽 위 선생님 메뉴에서 친구를 넣어 주세요.</p>`}
-      <button class="btn primary" id="login-btn" type="button">들어가기</button>
+      <button class="btn primary" id="login-btn" type="button">함께 출발!</button>
     </section>
   `, { nav: false });
 
@@ -282,6 +286,14 @@ function renderHome() {
   const groupWarn = teamMode() === "group" && s && !s.groupName;
 
   document.getElementById("app").innerHTML = shell(`
+    <section class="team-banner">
+      <span class="team-sticker">${teamMode() === "group" ? "🦊" : "🏫"}</span>
+      <div>
+        <p class="eyebrow">${teamMode() === "group" ? "모둠이랑 달려요" : "반이랑 달려요"}</p>
+        <h2>${teamName()}</h2>
+        <div class="faces">${teammates().map((m) => `<i title="${m.name}">${m.name[0]}</i>`).join("")}</div>
+      </div>
+    </section>
     <section class="speech">
       <div class="fox fox-md">${foxSvg()}</div>
       <div class="bubble">
@@ -336,9 +348,11 @@ function koreaMapSvg(fox, pos) {
   const path = list.map((c, i) => `${i ? "L" : "M"} ${c.x} ${c.y}`).join(" ");
   const dots = list.map((c) => {
     const done = pos >= c.km;
+    const nxt = list[cityIndexAt(pos) + 1];
+    const showName = done || (nxt && nxt.id === c.id);
     return `<g class="city-dot ${done ? "done" : ""}">
       <circle cx="${c.x}" cy="${c.y}" r="${done ? 5.5 : 4}" fill="${done ? c.color : "#fff"}" stroke="${c.color}" stroke-width="2.2"/>
-      <text x="${c.x + (c.lx || 0)}" y="${c.y + (c.ly || -8)}">${c.name}</text>
+      ${showName ? `<text x="${c.x + (c.lx || 0)}" y="${c.y + (c.ly || -8)}">${c.name}</text>` : ""}
     </g>`;
   }).join("");
   return `<svg class="korea-map" viewBox="0 0 320 460" role="img" aria-label="대한민국 지도">
@@ -552,15 +566,12 @@ function openArrival(city, { replay = false, start = false } = {}) {
   const kicker = start ? "출발해요!" : replay ? "" : "도착했어요!";
   root.innerHTML = `
     <div class="modal-bg" role="dialog" aria-labelledby="arr-title">
-      <div class="modal cute">
+      <div class="modal cute postcard">
         ${kicker ? `<p class="arrive-kicker">${kicker}</p>` : ""}
         <div class="seal huge">${city.stamp}</div>
         <h2 id="arr-title">${city.name}</h2>
         <p class="fact">${city.fact}</p>
-        <div class="info-mini">
-          <div><span>🍴</span><b>먹거리</b><p>${city.food}</p></div>
-          <div><span>📍</span><b>가볼 곳</b><p>${city.place}</p></div>
-        </div>
+        <p class="postcard-bits">🍴 ${city.food} · 📍 ${city.place}</p>
         <button class="btn primary" id="close-arr" type="button">${replay ? "닫기" : start ? `${city.name}에서 출발!` : "다음 도시로 고고!"}</button>
       </div>
     </div>`;

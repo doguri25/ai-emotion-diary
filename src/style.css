@@ -132,7 +132,41 @@ body {
   margin: 12px 0;
   animation: pop .35s ease;
 }
-.hero-card { text-align: center; background: linear-gradient(180deg, #fff7d6, #fffdf8); }
+.hero-card { text-align: center; background: linear-gradient(180deg, #fff7d6, #fffdf8); position: relative; }
+.deco-stars { font-size: 18px; letter-spacing: 8px; margin-bottom: 4px; }
+.mode-badge {
+  display: inline-block;
+  margin-top: 10px;
+  background: #e7f9ff;
+  border: 3px solid #3d2c29;
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 15px;
+}
+.team-banner {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  background: linear-gradient(90deg, #fff7d6, #ffe3f0);
+  border: 3px solid #3d2c29;
+  border-radius: 24px;
+  box-shadow: var(--shadow);
+  padding: 12px 14px;
+  margin: 8px 0 12px;
+}
+.team-banner h2 { margin: 0; font-size: 22px; }
+.team-sticker { font-size: 36px; }
+.faces { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.faces i {
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  background: #ffd166;
+  border: 2px solid #3d2c29;
+  display: grid; place-items: center;
+  font-style: normal;
+  font-size: 13px;
+}
+.postcard-bits { font-size: 16px; margin: 0 0 8px; }
 .hero-card h2 { margin: 0; font-size: 28px; }
 .lead { color: var(--muted); margin: 8px 0 0; font-size: 18px; }
 .card h3 { margin: 0 0 10px; font-size: 20px; }
