@@ -28,7 +28,7 @@ body {
   max-width: 480px;
   margin: 0 auto;
   min-height: 100dvh;
-  padding: 16px 16px 108px;
+  padding: 16px 16px 120px;
   position: relative;
 }
 
@@ -181,6 +181,7 @@ input, select {
   box-shadow: 0 6px 0 #3d2c29;
   cursor: pointer;
   font-size: 18px;
+  scroll-margin-bottom: 120px;
 }
 .btn.primary { background: #ff8fab; }
 .btn.ghost { background: #fff; }
@@ -209,6 +210,7 @@ input, select {
 .korea-map {
   width: 100%;
   height: auto;
+  max-height: 300px;
   background: linear-gradient(#c8f0ff, #fff6e0);
   border-radius: 18px;
   border: 3px dashed #f4a261;

@@ -676,10 +676,6 @@ function fitnessCardHtml(card) {
   </article>`;
 }
 
-function bindNav() {
-  document.querySelectorAll("[data-go]").forEach((b) => b.addEventListener("click", () => go(b.dataset.go)));
-}
-
 function render() {
   if (!state.team?.name || !state.team.mode) view = "setup";
   if (view === "setup") renderSetup();
@@ -687,8 +683,12 @@ function render() {
   else if (view === "stamps") renderStamps();
   else if (view === "teacher") renderTeacher();
   else renderHome();
-  bindNav();
 }
+
+document.addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-go]");
+  if (btn) go(btn.dataset.go);
+});
 
 window.addEventListener("beforeunload", () => {
   state.papsDraft = null;
